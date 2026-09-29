@@ -19,8 +19,8 @@ st.markdown(
     """
     <style>
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-        border-right: 1px solid #e2e8f0;
+        background: #f7f7f8;
+        border-right: 1px solid #e8e8eb;
     }
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 1.15rem;
@@ -45,60 +45,58 @@ st.markdown(
         margin: .05rem .65rem;
     }
     [data-testid="stSidebarNav"] span[data-testid="stIconMaterial"] {
-        color: #64748b;
+        color: #777780;
     }
     [data-testid="stSidebarNav"] a[aria-current="page"] {
-        background: #eef2ff;
-        border: 1px solid #c7d2fe;
+        background: #e9e9ec;
+        border: 1px solid transparent;
         border-radius: .65rem;
-        color: #3730a3;
+        color: #18181b;
         font-weight: 650;
     }
     [data-testid="stSidebarNav"] a[aria-current="page"] span[data-testid="stIconMaterial"] {
-        color: #4f46e5;
+        color: #27272a;
     }
-    .tw-brand {
+    [data-testid="stSidebarNavItems"] > header {
+        color: #92929a;
+        font-size: .7rem;
+        font-weight: 520;
+    }
+    [data-testid="stSidebarUserContent"] [data-testid="stTextInput"] input {
+        background: #eeeeef;
+        border: 1px solid transparent;
+        border-radius: .55rem;
+        box-shadow: none;
+        font-size: .8rem;
+    }
+    [data-testid="stSidebarUserContent"] [data-testid="stTextInput"] input:focus {
+        background: white;
+        border-color: #d4d4d8;
+        box-shadow: 0 0 0 1px #d4d4d8;
+    }
+    .tw-workspace {
         display: flex;
         align-items: center;
-        gap: .7rem;
-        padding: .15rem .1rem .85rem;
+        justify-content: space-between;
+        min-height: 2.45rem;
+        margin: 0 0 .55rem;
+        padding: .28rem .35rem .28rem .4rem;
+        border-radius: .55rem;
     }
-    .tw-brand-mark {
-        display: grid;
-        place-items: center;
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: .7rem;
-        color: white;
-        background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        box-shadow: 0 6px 16px rgba(79, 70, 229, .22);
-        font-size: 1.15rem;
-    }
-    .tw-brand-name { color: #172033; font-size: 1.02rem; font-weight: 750; line-height: 1.1; }
-    .tw-brand-sub { color: #64748b; font-size: .7rem; letter-spacing: .08em; margin-top: .22rem; }
-    .tw-user {
-        display: flex;
-        align-items: center;
-        gap: .65rem;
-        margin: 0 0 .85rem;
-        padding: .65rem .7rem;
-        border: 1px solid #e2e8f0;
-        border-radius: .7rem;
-        background: rgba(255,255,255,.75);
-    }
+    .tw-workspace:hover { background: #eeeeef; }
+    .tw-workspace-name { color: #27272a; font-size: .86rem; font-weight: 640; line-height: 1.2; }
+    .tw-workspace-meta { color: #8a8a92; font-size: .68rem; margin-top: .18rem; }
     .tw-avatar {
         display: grid;
         place-items: center;
-        min-width: 1.9rem;
-        height: 1.9rem;
-        border-radius: 50%;
-        color: #4338ca;
-        background: #e0e7ff;
-        font-size: .8rem;
-        font-weight: 750;
+        min-width: 1.55rem;
+        height: 1.55rem;
+        border-radius: .42rem;
+        color: #52525b;
+        background: #e4e4e7;
+        font-size: .66rem;
+        font-weight: 650;
     }
-    .tw-user-name { color: #1e293b; font-size: .84rem; font-weight: 650; line-height: 1.1; }
-    .tw-user-role { color: #64748b; font-size: .7rem; margin-top: .2rem; }
     .tw-result {
         padding: .42rem .55rem;
         margin: .28rem 0;
@@ -145,15 +143,10 @@ except Exception:
 with st.sidebar:
     initials = "".join(part[0].upper() for part in current_user.display_name.split()[:2]) or "U"
     st.markdown(
-        '<div class="tw-brand"><div class="tw-brand-mark">◆</div>'
-        '<div><div class="tw-brand-name">Team Workspace</div>'
-        '<div class="tw-brand-sub">SHARED OPERATIONS</div></div></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<div class="tw-user"><div class="tw-avatar">{initials}</div><div>'
-        f'<div class="tw-user-name">{current_user.display_name}</div>'
-        f'<div class="tw-user-role">{current_user.role}</div></div></div>',
+        '<div class="tw-workspace"><div>'
+        '<div class="tw-workspace-name">Team Workspace</div>'
+        f'<div class="tw-workspace-meta">{current_user.display_name} · {current_user.role}</div>'
+        f'</div><div class="tw-avatar">{initials}</div></div>',
         unsafe_allow_html=True,
     )
     search_query = st.text_input("横断検索", placeholder="すべてを検索…", label_visibility="collapsed")
