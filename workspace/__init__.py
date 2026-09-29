@@ -1,0 +1,2 @@
+"""Team Workspace application package."""
+
