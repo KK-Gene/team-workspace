@@ -18,7 +18,7 @@ def now() -> datetime:
 @pytest.fixture
 def services(tmp_path, now):
     database = Database(tmp_path / "workspace.db")
-    assert database.migrate() == 1
+    assert database.migrate() == 2
     services = AppServices(database, FixedClock(now), tmp_path / "backups", "Asia/Tokyo", 3)
     return services
 
@@ -26,4 +26,3 @@ def services(tmp_path, now):
 @pytest.fixture
 def user(services):
     return services.user_service.add_user("tester", "Test User", role="Admin")
-

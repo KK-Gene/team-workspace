@@ -2,7 +2,7 @@ import sqlite3
 
 
 def test_migration_and_integrity(services):
-    assert services.database.schema_version() == 1
+    assert services.database.schema_version() == 2
     assert services.database.integrity_check() == "ok"
 
 

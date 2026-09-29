@@ -17,6 +17,7 @@ from workspace.clock import Clock, to_storage
 from workspace.database import Database
 from workspace.errors import ValidationError
 from workspace.models import Priority, RecurrenceType, ReminderType, Task, TaskFilters, TaskStatus, User
+from workspace.notifications import PowerAutomateClient, ReminderSyncService
 from workspace.repositories.content import ActivityRepository, ContentRepository, FavoriteRepository
 from workspace.repositories.interfaces import (
     ActivityRepositoryProtocol,
@@ -27,6 +28,7 @@ from workspace.repositories.interfaces import (
 from workspace.repositories.search import SearchRepository
 from workspace.repositories.tasks import TaskRepository
 from workspace.repositories.users import UserRepository
+from workspace.repositories.notifications import NotificationOutboxRepository
 
 
 LOGGER = logging.getLogger("team_workspace.services")
@@ -55,6 +57,18 @@ class UserService:
         if not username.strip() or not display_name.strip():
             raise ValidationError("ユーザー名と表示名は必須です。")
         return self.repository.save(User(username=username, display_name=display_name, email=email or None, role=role))
+
+    def update_user(self, user_id: int, display_name: str, email: str, role: str, active: bool) -> User:
+        user = self.repository.find_by_id(user_id)
+        if not user:
+            raise ValidationError("ユーザーが見つかりません。")
+        if not display_name.strip():
+            raise ValidationError("表示名は必須です。")
+        user.display_name = display_name.strip()
+        user.email = email.strip() or None
+        user.role = role
+        user.active = active
+        return self.repository.save(user)
 
 
 class RecurrenceService:
@@ -139,13 +153,24 @@ class ReminderService:
 
 class TaskService:
     def __init__(self, repository: TaskRepositoryProtocol, activity: ActivityRepositoryProtocol, recurrence: RecurrenceService,
-                 reminders: ReminderService, clock: Clock, timezone_name: str = "Asia/Tokyo") -> None:
+                 reminders: ReminderService, clock: Clock, timezone_name: str = "Asia/Tokyo",
+                 reminder_sync: ReminderSyncService | None = None) -> None:
         self.repository = repository
         self.activity = activity
         self.recurrence = recurrence
         self.reminders = reminders
         self.clock = clock
         self.zone = ZoneInfo(timezone_name)
+        self.reminder_sync = reminder_sync
+
+    def _sync(self, action) -> None:
+        if not self.reminder_sync:
+            return
+        try:
+            action()
+            self.reminder_sync.flush()
+        except Exception:
+            LOGGER.exception("Reminder synchronization failed; task operation remains committed")
 
     def save(self, task: Task, actor_id: int) -> Task:
         if not task.title.strip():
@@ -156,6 +181,7 @@ class TaskService:
             raise ValidationError("相対リマインダーには期限日が必要です。")
         if task.reminder_enabled and task.reminder_type == ReminderType.ABSOLUTE and not task.reminder_datetime:
             raise ValidationError("絶対リマインダーの日時を指定してください。")
+        previous = self.repository.find_by_id(task.id) if task.id is not None else None
         action = "created" if task.id is None else "updated"
         if task.recurrence_enabled and task.due_date and task.next_occurrence_at is None:
             task.next_occurrence_at = datetime.combine(
@@ -163,12 +189,14 @@ class TaskService:
             )
         saved = self.repository.save(task)
         self.activity.add(actor_id, action, "task", saved.id, saved.title)
+        self._sync(lambda: self.reminder_sync.task_saved(previous, saved))  # type: ignore[union-attr]
         return saved
 
     def delete(self, task_id: int, actor_id: int) -> None:
         task = self.get(task_id)
         self.repository.delete(task_id)
         self.activity.add(actor_id, "deleted", "task", task_id, task.title)
+        self._sync(lambda: self.reminder_sync.task_deleted(task))  # type: ignore[union-attr]
 
     def get(self, task_id: int) -> Task:
         task = self.repository.find_by_id(task_id)
@@ -181,6 +209,7 @@ class TaskService:
 
     def complete(self, task_id: int, actor_id: int) -> Task:
         task = self.get(task_id)
+        previous = replace(task)
         now = self.clock.now()
         scheduled = task.next_occurrence_at or self.reminders.due_datetime(task)
         task.last_completed_at = now
@@ -197,6 +226,7 @@ class TaskService:
             task.status = TaskStatus.DONE
         saved = self.repository.record_completion(task, actor_id, to_storage(scheduled))
         self.activity.add(actor_id, "completed", "task", saved.id, saved.title)
+        self._sync(lambda: self.reminder_sync.task_saved(previous, saved))  # type: ignore[union-attr]
         return saved
 
     def acknowledge_reminder(self, task_id: int, actor_id: int) -> Task:
@@ -204,6 +234,7 @@ class TaskService:
         task.reminder_acknowledged_at = self.clock.now()
         saved = self.repository.save(task)
         self.activity.add(actor_id, "acknowledged reminder", "task", saved.id, saved.title)
+        self._sync(lambda: self.reminder_sync.task_acknowledged(saved))  # type: ignore[union-attr]
         return saved
 
     def my_day(self, user_id: int) -> dict[str, list[Task]]:
@@ -318,7 +349,8 @@ class ExportService:
 
 class AppServices:
     def __init__(self, database: Database, clock: Clock, backup_dir: Path, timezone_name: str,
-                 backup_retention: int = 15) -> None:
+                 backup_retention: int = 15, power_automate_webhook_url: str = "",
+                 notification_mode: str = "hybrid") -> None:
         self.database = database
         self.clock = clock
         self.activity = ActivityRepository(database, clock)
@@ -327,7 +359,14 @@ class AppServices:
         self.tasks_repo = TaskRepository(database, clock)
         self.reminders = ReminderService(clock, timezone_name)
         self.recurrence = RecurrenceService(timezone_name)
-        self.tasks = TaskService(self.tasks_repo, self.activity, self.recurrence, self.reminders, clock, timezone_name)
+        self.notification_outbox = NotificationOutboxRepository(database, clock)
+        self.power_automate = PowerAutomateClient(power_automate_webhook_url)
+        self.reminder_sync = ReminderSyncService(
+            self.notification_outbox, self.power_automate, self.reminders, self.users, clock, notification_mode
+        )
+        self.tasks = TaskService(
+            self.tasks_repo, self.activity, self.recurrence, self.reminders, clock, timezone_name, self.reminder_sync
+        )
         self.content_repositories = {
             kind: ContentRepository(database, clock, kind) for kind in ("snippet", "link", "glossary", "note")
         }

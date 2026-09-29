@@ -15,6 +15,7 @@
 - 横断検索、Favorite、Activity Log
 - CSV エクスポート
 - SQLite migration、整合性チェック、世代管理バックアップ
+- Power Automate / SharePoint List / Teamsリマインダー連携用Outbox
 
 ## アーキテクチャ
 
@@ -92,6 +93,27 @@ PRAGMA busy_timeout = 5000;
 ```
 
 WAL は `.db`、`-wal`、`-shm` が別々に同期される危険があるため使用しません。接続は操作単位で開閉し、書き込みは短いトランザクションで実行します。ローカルロックは有限回リトライしますが、別PCの OneDrive レプリカ間競合は検出・解決できません。
+
+## Power Automate / Teams Reminder
+
+リマインダーはローカルOutboxへ記録し、設定済みの場合はPower Automate Webhookへ同期します。Power Automate側はSharePoint Listをクラウド通知キューとして使用し、Scheduled FlowからTeamsへ通知します。
+
+Webhook URLは共有DBやGitへ保存せず、各PCのユーザー環境変数へ設定します。
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "TEAM_WORKSPACE_POWER_AUTOMATE_WEBHOOK_URL",
+  "https://<Power-Automate-Webhook-URL>",
+  "User"
+)
+[Environment]::SetEnvironmentVariable(
+  "TEAM_WORKSPACE_NOTIFICATION_MODE",
+  "hybrid",
+  "User"
+)
+```
+
+Power AutomateとSharePoint Listの完全な構築手順は [`docs/power-automate-reminder-design.md`](docs/power-automate-reminder-design.md) を参照してください。
 
 ## Backup
 

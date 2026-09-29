@@ -123,11 +123,23 @@ def bootstrap() -> tuple[Settings, AppServices]:
     if database_existed and database.has_pending_migrations():
         BackupService(database, settings.backup_dir, clock, settings.backup_retention).create()
     database.migrate()
-    services = AppServices(database, clock, settings.backup_dir, settings.timezone, settings.backup_retention)
+    services = AppServices(
+        database,
+        clock,
+        settings.backup_dir,
+        settings.timezone,
+        settings.backup_retention,
+        settings.power_automate_webhook_url,
+        settings.notification_mode,
+    )
     try:
         services.backups.create_if_due(settings.backup_interval_hours)
     except Exception:
         logging.getLogger("team_workspace").exception("Automatic backup failed")
+    try:
+        services.reminder_sync.flush()
+    except Exception:
+        logging.getLogger("team_workspace").exception("Notification outbox flush failed")
     return settings, services
 
 
