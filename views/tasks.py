@@ -303,7 +303,7 @@ def _render_task_list(
     render_list_heading(len(tasks))
     for task in tasks:
         card_key = f"task_card_{priority_slug(task)}_{task.id}"
-        with st.container(border=True, key=card_key):
+        with st.container(key=card_key):
             st.markdown(
                 task_card_markup(
                     task,

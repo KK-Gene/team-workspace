@@ -84,7 +84,12 @@ def inject_task_styles() -> None:
         .tw-list-heading strong { color: #334155; font-size: .78rem; }
         .tw-list-heading span { color: #94a3b8; font-size: .7rem; }
         [class*="st-key-task_card_"] {
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
             margin-bottom: .45rem;
+            padding: .8rem 1rem .72rem;
+            overflow: hidden;
             border: 1px solid #e2e8f0 !important;
             border-left-width: 4px !important;
             border-radius: .7rem !important;
@@ -106,17 +111,22 @@ def inject_task_styles() -> None:
         .tw-list-card-body {
             display: grid;
             grid-template-columns: minmax(0, 1fr) auto;
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
             gap: .75rem 1.25rem;
             align-items: center;
         }
         .tw-card-main { min-width: 0; }
         .tw-card-side {
             display: grid;
-            min-width: 10.5rem;
+            min-width: 0;
+            max-width: 12rem;
             gap: .22rem;
             color: #64748b;
             font-size: .68rem;
             text-align: right;
+            overflow-wrap: anywhere;
         }
         .tw-badge {
             display: inline-flex;
@@ -141,6 +151,7 @@ def inject_task_styles() -> None:
             font-size: .92rem;
             font-weight: 720;
             line-height: 1.35;
+            overflow-wrap: anywhere;
         }
         .tw-card-description {
             display: -webkit-box;
@@ -149,6 +160,7 @@ def inject_task_styles() -> None:
             color: #64748b;
             font-size: .72rem;
             line-height: 1.45;
+            overflow-wrap: anywhere;
             -webkit-box-orient: vertical;
             -webkit-line-clamp: 2;
         }
@@ -164,11 +176,13 @@ def inject_task_styles() -> None:
         .tw-due-today { color: #d97706; font-weight: 700; }
         .tw-tags { display: flex; gap: .28rem; flex-wrap: wrap; }
         .tw-tag {
+            max-width: 100%;
             padding: .14rem .4rem;
             border-radius: .35rem;
             color: #475569;
             background: #f1f5f9;
             font-size: .61rem;
+            overflow-wrap: anywhere;
         }
         .tw-empty {
             padding: 2.4rem 1rem;
@@ -192,7 +206,7 @@ def inject_task_styles() -> None:
             .tw-task-hero { padding: 1.1rem; }
             [class*="st-key-task_card_"] { margin-bottom: .5rem; }
             .tw-list-card-body { grid-template-columns: 1fr; }
-            .tw-card-side { min-width: 0; text-align: left; }
+            .tw-card-side { max-width: 100%; text-align: left; }
         }
         </style>
         """,

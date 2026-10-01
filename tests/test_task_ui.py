@@ -70,3 +70,23 @@ def test_new_task_button_opens_reactive_form(services, user):
     assert any(checkbox.label == "期限を設定" for checkbox in app.checkbox)
     assert any(checkbox.label == "リマインダーを有効にする" for checkbox in app.checkbox)
     assert any(checkbox.label == "繰り返しを有効にする" for checkbox in app.checkbox)
+
+
+def test_task_card_handles_long_content_without_nested_border(services, user):
+    task = _task(
+        services,
+        user,
+        "A" * 180,
+        TaskStatus.IN_PROGRESS,
+        Priority.CRITICAL,
+    )
+    task.description = "long-description-" * 40
+    task.tags = ["long-tag-" * 20]
+    services.tasks.save(task, user.id or 0)
+
+    app = _render_app(services, user)
+
+    assert not app.exception
+    markup = "\n".join(element.value for element in app.markdown)
+    assert "A" * 180 in markup
+    assert "long-description-" in markup
