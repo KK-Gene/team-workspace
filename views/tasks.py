@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime, time
+from html import escape
 from zoneinfo import ZoneInfo
 
 import streamlit as st
 
-from views.common import run_action, task_label, task_rows
+from views.common import format_timestamp, run_action
+from views.task_components import (
+    BOARD_LANES,
+    inject_task_styles,
+    priority_slug,
+    render_lane_heading,
+    render_task_header,
+    render_task_stats,
+    task_card_markup,
+)
 from workspace.models import Priority, RecurrenceType, ReminderType, Task, TaskFilters, TaskStatus, User
 from workspace.services import AppServices, parse_tags
 
@@ -172,13 +182,15 @@ def _task_form(services: AppServices, user: User, existing: Task | None) -> None
                 key=f"{prefix}_recurrence_time",
             )
 
-        action_columns = st.columns(2 if existing else 1)
+        action_columns = st.columns(2)
         submitted = action_columns[0].button(
             "保存", type="primary", use_container_width=True, key=f"{prefix}_save"
         )
-        if existing and action_columns[1].button("編集をキャンセル", use_container_width=True, key=f"{prefix}_cancel"):
+        cancel_label = "編集をキャンセル" if existing else "閉じる"
+        if action_columns[1].button(cancel_label, use_container_width=True, key=f"{prefix}_cancel"):
             _clear_task_form(prefix)
             st.session_state.pop("edit_task_id", None)
+            st.session_state["show_task_form"] = False
             st.rerun()
         if submitted:
             absolute_datetime = None
@@ -214,49 +226,172 @@ def _task_form(services: AppServices, user: User, existing: Task | None) -> None
                 _clear_task_form(prefix)
                 st.session_state["task_form_generation"] = generation + 1
                 st.session_state.pop("edit_task_id", None)
+                st.session_state["show_task_form"] = False
                 st.rerun()
+
+
+VIEW_LABELS = {
+    "mine": "自分のタスク",
+    "team": "チーム",
+    "today": "今日",
+    "upcoming": "今後",
+    "recurring": "繰り返し",
+    "completed": "完了履歴",
+}
+
+
+def _open_editor(task: Task) -> None:
+    _clear_task_form(f"task_form_edit_{task.id}")
+    st.session_state["edit_task_id"] = task.id
+    st.session_state["show_task_form"] = True
+    st.rerun()
+
+
+def _render_task_actions(services: AppServices, user: User, task: Task) -> None:
+    actions = st.columns([1, 1, .42])
+    if actions[0].button("編集", key=f"edit_task_{task.id}", use_container_width=True, icon=":material/edit:"):
+        _open_editor(task)
+    if actions[1].button(
+        "完了",
+        key=f"complete_task_{task.id}",
+        use_container_width=True,
+        icon=":material/check:",
+        disabled=task.status == TaskStatus.DONE,
+    ):
+        if run_action(lambda: services.tasks.complete(task.id or 0, user.id or 0), "タスクを完了しました。"):
+            st.rerun()
+    with actions[2].popover("•••", use_container_width=True):
+        st.caption(f"タスク #{task.id}")
+        if st.button(
+            "通知を確認済みにする",
+            key=f"ack_task_{task.id}",
+            use_container_width=True,
+            disabled=not services.reminders.is_due(task),
+        ):
+            if run_action(
+                lambda: services.tasks.acknowledge_reminder(task.id or 0, user.id or 0),
+                "リマインダーを確認済みにしました。",
+            ):
+                st.rerun()
+        confirm = st.checkbox("削除を確認", key=f"confirm_task_{task.id}")
+        if st.button(
+            "タスクを削除",
+            key=f"delete_task_{task.id}",
+            use_container_width=True,
+            disabled=not confirm,
+            type="primary",
+        ):
+            if run_action(lambda: services.tasks.delete(task.id or 0, user.id or 0), "タスクを削除しました。"):
+                st.rerun()
+
+
+def _render_board(
+    services: AppServices,
+    user: User,
+    tasks: list[Task],
+    user_names: dict[int, str],
+) -> None:
+    today = services.clock.now().date()
+    if not tasks:
+        st.markdown(
+            '<div class="tw-empty"><strong>条件に合うタスクはありません</strong><br>'
+            '<span style="font-size:.75rem">フィルターを変更するか、新しいタスクを追加してください。</span></div>',
+            unsafe_allow_html=True,
+        )
+        return
+    columns = st.columns(4, gap="small")
+    for column, (css_name, title, subtitle, statuses) in zip(columns, BOARD_LANES, strict=True):
+        lane_tasks = [task for task in tasks if task.status in statuses]
+        with column:
+            render_lane_heading(css_name, title, subtitle, len(lane_tasks))
+            for task in lane_tasks:
+                card_key = f"task_card_{priority_slug(task)}_{task.id}"
+                with st.container(border=True, key=card_key):
+                    st.markdown(
+                        task_card_markup(
+                            task,
+                            user_names.get(task.assignee_user_id or -1, "未割当"),
+                            today,
+                        ),
+                        unsafe_allow_html=True,
+                    )
+                    _render_task_actions(services, user, task)
+
+
+def _render_history(services: AppServices) -> None:
+    history = services.tasks_repo.completion_history()
+    if not history:
+        st.markdown('<div class="tw-empty">完了履歴はまだありません。</div>', unsafe_allow_html=True)
+        return
+    for item in history:
+        scheduled = f" · 対象日 {escape(str(item['scheduled_for']))}" if item.get("scheduled_for") else ""
+        st.markdown(
+            f'<div class="tw-history-row"><strong>{escape(str(item["title"]))}</strong>'
+            f'<div>{escape(str(item["display_name"]))} · '
+            f'{escape(format_timestamp(str(item["completed_at"])))}{scheduled}</div></div>',
+            unsafe_allow_html=True,
+        )
 
 
 def render(services: AppServices, user: User) -> None:
-    st.title("Tasks")
+    inject_task_styles()
+    header, create_action = st.columns([5, 1.15], vertical_alignment="bottom")
+    with header:
+        render_task_header()
+    if create_action.button(
+        "新しいタスク",
+        type="primary",
+        use_container_width=True,
+        icon=":material/add:",
+    ):
+        st.session_state.pop("edit_task_id", None)
+        st.session_state["show_task_form"] = True
+        st.rerun()
+
     edit_id = st.session_state.get("edit_task_id")
     existing = services.tasks.get(edit_id) if edit_id else None
-    _task_form(services, user, existing)
+    if existing or st.session_state.get("show_task_form", False):
+        _task_form(services, user, existing)
 
-    st.subheader("タスク一覧")
     users = services.users.list_all()
     user_names = {item.id or 0: item.display_name for item in users}
-    col1, col2, col3, col4 = st.columns(4)
-    view = col1.selectbox("ビュー", ["My Tasks", "Team Tasks", "Today", "Upcoming", "Recurring", "Completed"])
-    statuses = col2.multiselect("ステータス", STATUS_OPTIONS, default=[])
-    priorities = col3.multiselect("優先度", PRIORITY_OPTIONS, default=[])
-    text = col4.text_input("検索")
-    if view == "Completed":
-        history = services.tasks_repo.completion_history()
-        st.dataframe(history, use_container_width=True, hide_index=True)
-        return
-    filters = TaskFilters(statuses=statuses, priorities=priorities, text=text or None)
-    if view == "My Tasks": filters.assignee_user_id = user.id
-    if view == "Today": filters.due_from = filters.due_to = services.clock.now().date()
-    if view == "Upcoming": filters.due_from = services.clock.now().date()
-    if view == "Recurring": filters.recurring_only = True
-    tasks = services.tasks.list(filters)
-    st.dataframe(task_rows(tasks, user_names), use_container_width=True, hide_index=True)
+    all_my_tasks = services.tasks.list(TaskFilters(assignee_user_id=user.id))
+    render_task_stats(all_my_tasks, services.clock.now().date())
 
-    if tasks:
-        selected_id = st.selectbox("操作するタスク", [task.id for task in tasks], format_func=lambda value: task_label(next(task for task in tasks if task.id == value)))
-        selected = next(task for task in tasks if task.id == selected_id)
-        buttons = st.columns(4)
-        if buttons[0].button("編集", use_container_width=True):
-            _clear_task_form(f"task_form_edit_{selected.id}")
-            st.session_state["edit_task_id"] = selected.id; st.rerun()
-        if buttons[1].button("完了", type="primary", use_container_width=True, disabled=selected.status == TaskStatus.DONE):
-            if run_action(lambda: services.tasks.complete(selected.id or 0, user.id or 0), "タスクを完了しました。"):
-                st.rerun()
-        if buttons[2].button("通知確認済み", use_container_width=True, disabled=not services.reminders.is_due(selected)):
-            if run_action(lambda: services.tasks.acknowledge_reminder(selected.id or 0, user.id or 0), "リマインダーを確認済みにしました。"):
-                st.rerun()
-        confirm = buttons[3].checkbox("削除確認", key=f"confirm_task_{selected.id}")
-        if st.button("選択タスクを削除", disabled=not confirm):
-            if run_action(lambda: services.tasks.delete(selected.id or 0, user.id or 0), "タスクを削除しました。"):
-                st.rerun()
+    st.markdown("#### タスクボード")
+    view = st.segmented_control(
+        "表示範囲",
+        list(VIEW_LABELS),
+        default="mine",
+        format_func=VIEW_LABELS.get,
+        selection_mode="single",
+        label_visibility="collapsed",
+        key="task_view",
+    ) or "mine"
+
+    if view == "completed":
+        _render_history(services)
+        return
+
+    with st.expander("絞り込み", expanded=False, icon=":material/filter_list:"):
+        filter_columns = st.columns([1.1, 1.1, 2])
+        statuses = filter_columns[0].multiselect("ステータス", STATUS_OPTIONS, default=[], key="task_filter_status")
+        priorities = filter_columns[1].multiselect("優先度", PRIORITY_OPTIONS, default=[], key="task_filter_priority")
+        text = filter_columns[2].text_input(
+            "キーワード",
+            placeholder="タイトル・説明・タグを検索",
+            key="task_filter_text",
+            icon=":material/search:",
+        )
+
+    filters = TaskFilters(statuses=statuses, priorities=priorities, text=text or None)
+    if view == "mine":
+        filters.assignee_user_id = user.id
+    if view == "today":
+        filters.due_from = filters.due_to = services.clock.now().date()
+    if view == "upcoming":
+        filters.due_from = services.clock.now().date()
+    if view == "recurring":
+        filters.recurring_only = True
+    filtered_tasks = services.tasks.list(filters)
+    _render_board(services, user, filtered_tasks, user_names)
