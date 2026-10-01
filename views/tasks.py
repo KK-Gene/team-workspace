@@ -8,10 +8,11 @@ import streamlit as st
 
 from views.common import format_timestamp, run_action
 from views.task_components import (
-    BOARD_LANES,
+    PRIORITY_LABELS,
+    STATUS_LABELS,
     inject_task_styles,
     priority_slug,
-    render_lane_heading,
+    render_list_heading,
     render_task_header,
     render_task_stats,
     task_card_markup,
@@ -248,10 +249,10 @@ def _open_editor(task: Task) -> None:
 
 
 def _render_task_actions(services: AppServices, user: User, task: Task) -> None:
-    actions = st.columns([1, 1, .42])
-    if actions[0].button("編集", key=f"edit_task_{task.id}", use_container_width=True, icon=":material/edit:"):
+    actions = st.columns([4.5, .75, .75, .42])
+    if actions[1].button("編集", key=f"edit_task_{task.id}", use_container_width=True, icon=":material/edit:"):
         _open_editor(task)
-    if actions[1].button(
+    if actions[2].button(
         "完了",
         key=f"complete_task_{task.id}",
         use_container_width=True,
@@ -260,7 +261,7 @@ def _render_task_actions(services: AppServices, user: User, task: Task) -> None:
     ):
         if run_action(lambda: services.tasks.complete(task.id or 0, user.id or 0), "タスクを完了しました。"):
             st.rerun()
-    with actions[2].popover("•••", use_container_width=True):
+    with actions[3].popover("•••", use_container_width=True):
         st.caption(f"タスク #{task.id}")
         if st.button(
             "通知を確認済みにする",
@@ -285,7 +286,7 @@ def _render_task_actions(services: AppServices, user: User, task: Task) -> None:
                 st.rerun()
 
 
-def _render_board(
+def _render_task_list(
     services: AppServices,
     user: User,
     tasks: list[Task],
@@ -299,23 +300,28 @@ def _render_board(
             unsafe_allow_html=True,
         )
         return
-    columns = st.columns(4, gap="small")
-    for column, (css_name, title, subtitle, statuses) in zip(columns, BOARD_LANES, strict=True):
-        lane_tasks = [task for task in tasks if task.status in statuses]
-        with column:
-            render_lane_heading(css_name, title, subtitle, len(lane_tasks))
-            for task in lane_tasks:
-                card_key = f"task_card_{priority_slug(task)}_{task.id}"
-                with st.container(border=True, key=card_key):
-                    st.markdown(
-                        task_card_markup(
-                            task,
-                            user_names.get(task.assignee_user_id or -1, "未割当"),
-                            today,
-                        ),
-                        unsafe_allow_html=True,
-                    )
-                    _render_task_actions(services, user, task)
+    render_list_heading(len(tasks))
+    for task in tasks:
+        card_key = f"task_card_{priority_slug(task)}_{task.id}"
+        with st.container(border=True, key=card_key):
+            st.markdown(
+                task_card_markup(
+                    task,
+                    user_names.get(task.assignee_user_id or -1, "未割当"),
+                    today,
+                ),
+                unsafe_allow_html=True,
+            )
+            _render_task_actions(services, user, task)
+
+
+def _sort_tasks(tasks: list[Task], order: str) -> list[Task]:
+    if order == "priority":
+        rank = {Priority.CRITICAL: 0, Priority.HIGH: 1, Priority.MEDIUM: 2, Priority.LOW: 3}
+        return sorted(tasks, key=lambda task: (rank[Priority(task.priority)], task.due_date is None, task.due_date))
+    if order == "updated":
+        return sorted(tasks, key=lambda task: task.updated_at or task.created_at or datetime.min.replace(tzinfo=ZoneInfo("UTC")), reverse=True)
+    return sorted(tasks, key=lambda task: (task.due_date is None, task.due_date, task.due_time is None, task.due_time))
 
 
 def _render_history(services: AppServices) -> None:
@@ -358,7 +364,7 @@ def render(services: AppServices, user: User) -> None:
     all_my_tasks = services.tasks.list(TaskFilters(assignee_user_id=user.id))
     render_task_stats(all_my_tasks, services.clock.now().date())
 
-    st.markdown("#### タスクボード")
+    st.markdown("#### タスク一覧")
     view = st.segmented_control(
         "表示範囲",
         list(VIEW_LABELS),
@@ -373,16 +379,35 @@ def render(services: AppServices, user: User) -> None:
         _render_history(services)
         return
 
-    with st.expander("絞り込み", expanded=False, icon=":material/filter_list:"):
-        filter_columns = st.columns([1.1, 1.1, 2])
-        statuses = filter_columns[0].multiselect("ステータス", STATUS_OPTIONS, default=[], key="task_filter_status")
-        priorities = filter_columns[1].multiselect("優先度", PRIORITY_OPTIONS, default=[], key="task_filter_priority")
-        text = filter_columns[2].text_input(
-            "キーワード",
-            placeholder="タイトル・説明・タグを検索",
-            key="task_filter_text",
-            icon=":material/search:",
-        )
+    filter_columns = st.columns([2.2, 1.6, 1.4, 1.2], vertical_alignment="bottom")
+    text = filter_columns[0].text_input(
+        "キーワード",
+        placeholder="タイトル・説明・タグを検索",
+        key="task_filter_text",
+        icon=":material/search:",
+    )
+    statuses = filter_columns[1].multiselect(
+        "ステータス",
+        STATUS_OPTIONS,
+        default=[],
+        format_func=lambda value: STATUS_LABELS[TaskStatus(value)],
+        placeholder="すべて",
+        key="task_filter_status",
+    )
+    priorities = filter_columns[2].multiselect(
+        "優先度",
+        PRIORITY_OPTIONS,
+        default=[],
+        format_func=lambda value: PRIORITY_LABELS[Priority(value)],
+        placeholder="すべて",
+        key="task_filter_priority",
+    )
+    order = filter_columns[3].selectbox(
+        "並び順",
+        ["due", "priority", "updated"],
+        format_func={"due": "期限が近い", "priority": "優先度", "updated": "更新が新しい"}.get,
+        key="task_sort_order",
+    )
 
     filters = TaskFilters(statuses=statuses, priorities=priorities, text=text or None)
     if view == "mine":
@@ -393,5 +418,5 @@ def render(services: AppServices, user: User) -> None:
         filters.due_from = services.clock.now().date()
     if view == "recurring":
         filters.recurring_only = True
-    filtered_tasks = services.tasks.list(filters)
-    _render_board(services, user, filtered_tasks, user_names)
+    filtered_tasks = _sort_tasks(services.tasks.list(filters), order)
+    _render_task_list(services, user, filtered_tasks, user_names)

@@ -24,14 +24,6 @@ PRIORITY_LABELS = {
     Priority.CRITICAL: "最優先",
 }
 
-BOARD_LANES = (
-    ("ready", "未着手", "着手待ち", (TaskStatus.BACKLOG, TaskStatus.TODO)),
-    ("progress", "進行中", "対応中", (TaskStatus.IN_PROGRESS,)),
-    ("blocked", "ブロック", "確認が必要", (TaskStatus.BLOCKED,)),
-    ("done", "完了", "対応済み", (TaskStatus.DONE,)),
-)
-
-
 def inject_task_styles() -> None:
     st.markdown(
         """
@@ -81,47 +73,23 @@ def inject_task_styles() -> None:
         .tw-stat-amber { border-top: 3px solid #f59e0b; }
         .tw-stat-red { border-top: 3px solid #ef4444; }
         .tw-stat-green { border-top: 3px solid #10b981; }
-        .tw-filter-shell {
-            margin-top: .4rem;
-            padding: .2rem 0 .05rem;
-        }
-        .tw-board-heading {
+        .tw-list-heading {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin: .15rem 0 .65rem;
-            padding: .55rem .7rem;
-            border-radius: .7rem;
-            color: #334155;
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
+            margin: .7rem 0 .35rem;
+            padding: .55rem .15rem;
+            border-bottom: 1px solid #e2e8f0;
         }
-        .tw-board-heading strong { font-size: .8rem; }
-        .tw-board-heading span {
-            display: inline-grid;
-            place-items: center;
-            min-width: 1.45rem;
-            height: 1.45rem;
-            padding: 0 .35rem;
-            border-radius: 999px;
-            color: #475569;
-            background: #e2e8f0;
-            font-size: .68rem;
-            font-weight: 750;
-        }
-        .tw-board-progress { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
-        .tw-board-progress span { color: #1d4ed8; background: #dbeafe; }
-        .tw-board-blocked { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
-        .tw-board-blocked span { color: #c2410c; background: #ffedd5; }
-        .tw-board-done { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
-        .tw-board-done span { color: #047857; background: #d1fae5; }
+        .tw-list-heading strong { color: #334155; font-size: .78rem; }
+        .tw-list-heading span { color: #94a3b8; font-size: .7rem; }
         [class*="st-key-task_card_"] {
-            margin-bottom: .65rem;
+            margin-bottom: .45rem;
             border: 1px solid #e2e8f0 !important;
             border-left-width: 4px !important;
-            border-radius: .8rem !important;
+            border-radius: .7rem !important;
             background: #ffffff;
-            box-shadow: 0 5px 16px rgba(15, 23, 42, .045);
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .035);
             transition: transform .16s ease, box-shadow .16s ease;
         }
         [class*="st-key-task_card_"]:hover {
@@ -135,6 +103,21 @@ def inject_task_styles() -> None:
         [class*="st-key-task_card_"] [data-testid="stVerticalBlock"] { gap: .48rem; }
         [class*="st-key-task_card_"] button { min-height: 2rem; font-size: .75rem; }
         .tw-card-top { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+        .tw-list-card-body {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: .75rem 1.25rem;
+            align-items: center;
+        }
+        .tw-card-main { min-width: 0; }
+        .tw-card-side {
+            display: grid;
+            min-width: 10.5rem;
+            gap: .22rem;
+            color: #64748b;
+            font-size: .68rem;
+            text-align: right;
+        }
         .tw-badge {
             display: inline-flex;
             align-items: center;
@@ -169,10 +152,11 @@ def inject_task_styles() -> None:
             -webkit-box-orient: vertical;
             -webkit-line-clamp: 2;
         }
-        .tw-card-meta {
+        .tw-card-signals {
             display: flex;
             gap: .35rem .6rem;
             flex-wrap: wrap;
+            margin-top: .35rem;
             color: #64748b;
             font-size: .68rem;
         }
@@ -207,6 +191,8 @@ def inject_task_styles() -> None:
         @media (max-width: 900px) {
             .tw-task-hero { padding: 1.1rem; }
             [class*="st-key-task_card_"] { margin-bottom: .5rem; }
+            .tw-list-card-body { grid-template-columns: 1fr; }
+            .tw-card-side { min-width: 0; text-align: left; }
         }
         </style>
         """,
@@ -248,11 +234,9 @@ def render_task_stats(tasks: Iterable[Task], today: date) -> None:
         )
 
 
-def render_lane_heading(css_name: str, title: str, subtitle: str, count: int) -> None:
+def render_list_heading(count: int) -> None:
     st.markdown(
-        f'<div class="tw-board-heading tw-board-{css_name}"><div><strong>{escape(title)}</strong>'
-        f'<small style="display:block;font-size:.62rem;opacity:.72">{escape(subtitle)}</small></div>'
-        f'<span>{count}</span></div>',
+        f'<div class="tw-list-heading"><strong>タスク</strong><span>{count}件を表示</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -271,17 +255,17 @@ def task_card_markup(task: Task, assignee: str, today: date) -> str:
     recurrence = "<span>↻ 繰り返し</span>" if task.recurrence_enabled else ""
     reminder = "<span>◷ 通知あり</span>" if task.reminder_enabled else ""
     return (
+        '<div class="tw-list-card-body"><div class="tw-card-main">'
         '<div class="tw-card-top">'
         f'<span class="tw-badge tw-status-{status_slug}">{STATUS_LABELS[status]}</span>'
         f'<span class="tw-badge tw-priority-{priority_slug}">{PRIORITY_LABELS[priority]}</span>'
         '</div>'
-        f'<div class="tw-card-title">{escape(task.title)}</div>'
-        f'{description}'
-        '<div class="tw-card-meta">'
+        f'<div class="tw-card-title">{escape(task.title)}</div>{description}'
+        f'<div class="tw-card-signals">{tag_block}{recurrence}{reminder}</div></div>'
+        '<div class="tw-card-side">'
         f'<span class="{due_class}">期限 {escape(due_text)}</span>'
-        f'<span>担当 {escape(assignee)}</span>{recurrence}{reminder}'
-        '</div>'
-        f'{tag_block}'
+        f'<span>担当 {escape(assignee)}</span>'
+        f'<span>#{task.id}</span></div></div>'
     )
 
 

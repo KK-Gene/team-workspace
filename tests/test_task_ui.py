@@ -41,7 +41,7 @@ render(services, user)
     return AppTest.from_string(script, default_timeout=5).run()
 
 
-def test_task_board_renders_status_lanes_and_cards(services, user):
+def test_task_list_renders_status_cards_and_filters(services, user):
     _task(services, user, "Ready work", TaskStatus.TODO, Priority.MEDIUM)
     _task(services, user, "Active work", TaskStatus.IN_PROGRESS, Priority.HIGH)
     _task(services, user, "Waiting work", TaskStatus.BLOCKED, Priority.CRITICAL)
@@ -56,6 +56,8 @@ def test_task_board_renders_status_lanes_and_cards(services, user):
     assert "Active work" in markup
     assert "Waiting work" in markup
     assert "Finished work" in markup
+    assert "4件を表示" in markup
+    assert not app.dataframe
     assert len([button for button in app.button if button.label == "編集"]) == 4
     assert len([button for button in app.button if button.label == "完了"]) == 4
 
